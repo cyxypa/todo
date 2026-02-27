@@ -401,8 +401,11 @@ class DayDetailsWindow(tk.Toplevel):
 
     def add_event(self):
         dlg = EventEditor(self.app.root, mode="add", init_date=self.d)
+        self.app.root.wait_window(dlg)  # ✅ 等用户在弹窗里点“保存/取消”并关闭
+
         if not dlg.result:
             return
+
         new = Event(
             id=str(uuid.uuid4()),
             name=dlg.result["name"],
@@ -414,11 +417,13 @@ class DayDetailsWindow(tk.Toplevel):
         self.app.persist_and_refresh()
         self.refresh()
 
+
     def edit_event(self):
         eid = self._selected_event_id()
         if not eid:
             messagebox.showinfo("提示", "请先选择一个事件（或双击某行编辑）")
             return
+
         ev = self.app.find_event_by_id(eid)
         if not ev:
             messagebox.showerror("错误", "找不到该事件（可能已被删除）")
@@ -427,6 +432,8 @@ class DayDetailsWindow(tk.Toplevel):
             return
 
         dlg = EventEditor(self.app.root, mode="edit", init_date=self.d, event=ev)
+        self.app.root.wait_window(dlg)  # ✅ 同样等待
+
         if not dlg.result:
             return
 
@@ -903,12 +910,13 @@ def main():
     data_file = Path(__file__).with_name("schedule.json")
     root = tk.Tk()
 
-    ui.setup_theme(root, mode="light")  # ✅ 回退浅色风格
+    ui.setup_theme(root, mode="light")
 
-    try:
-        root.tk.call("tk", "scaling", 1.2)
-    except Exception:
-        pass
+    import traceback
+    def _tk_exception_handler(exc, val, tb):
+        msg = "".join(traceback.format_exception(exc, val, tb))
+        messagebox.showerror("程序出错（回调异常）", msg)
+    root.report_callback_exception = _tk_exception_handler
 
     CalendarApp(root, data_file)
     root.mainloop()
