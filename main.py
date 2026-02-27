@@ -5,8 +5,33 @@ from tkinter import ttk, messagebox
 from dataclasses import dataclass
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set, Tuple
 import uuid
+import colorsys
+
+
+# -----------------------------
+# 基础配色（可自行调整）
+# -----------------------------
+NORMAL_BG = "#FFFFFF"
+BLANK_BG = "#F6F6F6"
+EVENT_BG = "#FFF2CC"        # 有事件：浅黄
+TODAY_BG = "#D6F0FF"        # 今日：浅蓝
+BORDER_NORMAL = "#D0D0D0"
+
+# 多事件重叠高亮背景（当天属于多个检索事件时）
+MULTI_HIT_BG = "#EFEFEF"
+
+# 高亮色盘（不够用会自动生成更多淡色）
+HIGHLIGHT_PALETTE = [
+    "#DFF7E3",  # 绿
+    "#FFE0E6",  # 粉
+    "#E6E0FF",  # 紫
+    "#FFEACC",  # 橙
+    "#E0F7F7",  # 青
+    "#FFF2CC",  # 黄（注意：与 EVENT_BG 接近，可按需换掉）
+    "#E7F0FF",  # 蓝
+]
 
 
 # -----------------------------
@@ -45,7 +70,6 @@ def parse_dt(s: str) -> datetime:
 
 
 def dt_to_str(dt: datetime) -> str:
-    # 如果是整点 00:00:00，存成日期字符串更干净
     if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
         return dt.strftime("%Y-%m-%d")
     return dt.strftime("%Y-%m-%d %H:%M")
@@ -86,7 +110,6 @@ def load_events(path: Path) -> List[Event]:
         name = str(item.get("name", "")).strip() or "未命名事件"
         note = str(item.get("note", "")).strip()
 
-        # 兼容：date(单天) 或 start/end(可跨天)
         if "date" in item and item.get("date"):
             start = parse_dt(str(item["date"]))
             end = start
@@ -135,6 +158,35 @@ def build_day_map(events: List[Event]) -> Dict[date, List[Event]]:
 
 
 # -----------------------------
+# 颜色工具
+# -----------------------------
+def hex_to_rgb(h: str) -> Tuple[int, int, int]:
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def darken(hex_color: str, factor: float = 0.75) -> str:
+    r, g, b = hex_to_rgb(hex_color)
+    r = max(0, min(255, int(r * factor)))
+    g = max(0, min(255, int(g * factor)))
+    b = max(0, min(255, int(b * factor)))
+    return rgb_to_hex(r, g, b)
+
+
+def pastel_from_index(i: int) -> str:
+    # 生成“淡色”避免刺眼：固定较低饱和度 + 较高亮度
+    hue = (i * 0.13) % 1.0
+    sat = 0.35
+    val = 0.97
+    r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
+    return rgb_to_hex(int(r * 255), int(g * 255), int(b * 255))
+
+
+# -----------------------------
 # Tooltip 悬浮窗
 # -----------------------------
 class Tooltip:
@@ -148,9 +200,9 @@ class Tooltip:
             self.win = tk.Toplevel(self.root)
             self.win.wm_overrideredirect(True)
             self.win.attributes("-topmost", True)
-            frame = ttk.Frame(self.win, padding=8, style="Tooltip.TFrame")
+            frame = ttk.Frame(self.win, padding=8, relief="solid", borderwidth=1)
             frame.pack(fill="both", expand=True)
-            self.label = ttk.Label(frame, text=text, justify="left", style="Tooltip.TLabel")
+            self.label = ttk.Label(frame, text=text, justify="left")
             self.label.pack()
 
         if self.label is not None:
@@ -167,12 +219,6 @@ class Tooltip:
 # 事件编辑器：新增/编辑
 # -----------------------------
 class EventEditor(tk.Toplevel):
-    """
-    modal dialog:
-    - mode: "add" or "edit"
-    - init_date: 用于新增时默认填充
-    - event: 编辑时传入
-    """
     def __init__(self, parent: tk.Tk, mode: str, init_date: date, event: Optional[Event] = None):
         super().__init__(parent)
         self.parent = parent
@@ -188,37 +234,32 @@ class EventEditor(tk.Toplevel):
         wrap = ttk.Frame(self, padding=12)
         wrap.pack(fill="both", expand=True)
 
-        # Fields
         ttk.Label(wrap, text="名称：").grid(row=0, column=0, sticky="w", pady=4)
         self.name_var = tk.StringVar(value=(event.name if event else ""))
-        ttk.Entry(wrap, textvariable=self.name_var, width=40).grid(row=0, column=1, sticky="ew", pady=4)
+        ttk.Entry(wrap, textvariable=self.name_var, width=42).grid(row=0, column=1, sticky="ew", pady=4)
 
         ttk.Label(wrap, text="开始：").grid(row=1, column=0, sticky="w", pady=4)
         ttk.Label(wrap, text="格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM").grid(row=1, column=2, sticky="w", padx=(8, 0))
         self.start_var = tk.StringVar()
-
-        ttk.Entry(wrap, textvariable=self.start_var, width=40).grid(row=1, column=1, sticky="ew", pady=4)
+        ttk.Entry(wrap, textvariable=self.start_var, width=42).grid(row=1, column=1, sticky="ew", pady=4)
 
         ttk.Label(wrap, text="结束：").grid(row=2, column=0, sticky="w", pady=4)
         self.end_var = tk.StringVar()
-        ttk.Entry(wrap, textvariable=self.end_var, width=40).grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Entry(wrap, textvariable=self.end_var, width=42).grid(row=2, column=1, sticky="ew", pady=4)
 
         ttk.Label(wrap, text="备注：").grid(row=3, column=0, sticky="nw", pady=4)
-        self.note_text = tk.Text(wrap, width=40, height=6)
+        self.note_text = tk.Text(wrap, width=42, height=6)
         self.note_text.grid(row=3, column=1, sticky="ew", pady=4)
 
-        # Prefill
         if event:
             self.start_var.set(dt_to_str(event.start))
             self.end_var.set(dt_to_str(event.end))
             self.note_text.insert("1.0", event.note or "")
         else:
-            # default: single day
             ds = init_date.strftime("%Y-%m-%d")
             self.start_var.set(ds)
             self.end_var.set(ds)
 
-        # Buttons
         btns = ttk.Frame(wrap)
         btns.grid(row=4, column=0, columnspan=3, sticky="e", pady=(10, 0))
         ttk.Button(btns, text="取消", command=self._cancel).pack(side="right", padx=6)
@@ -250,17 +291,10 @@ class EventEditor(tk.Toplevel):
             return
 
         if end < start:
-            # 允许用户反着填，自动纠正
             start, end = end, start
 
         note = self.note_text.get("1.0", "end").rstrip("\n")
-
-        self.result = {
-            "name": name,
-            "start": start,
-            "end": end,
-            "note": note
-        }
+        self.result = {"name": name, "start": start, "end": end, "note": note}
         self.destroy()
 
 
@@ -274,7 +308,7 @@ class DayDetailsWindow(tk.Toplevel):
         self.d = d
 
         self.title(f"{d.strftime('%Y-%m-%d')} 详细列表")
-        self.geometry("760x380")
+        self.geometry("780x380")
         self.transient(app.root)
 
         wrap = ttk.Frame(self, padding=10)
@@ -282,8 +316,7 @@ class DayDetailsWindow(tk.Toplevel):
 
         top = ttk.Frame(wrap)
         top.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(top, text=f"{d.strftime('%Y-%m-%d')} 待办事项", font=("Segoe UI", 12, "bold")).pack(side="left")
+        ttk.Label(top, text=f"{d.strftime('%Y-%m-%d')} 待办事项", font=("TkDefaultFont", 12, "bold")).pack(side="left")
 
         btns = ttk.Frame(top)
         btns.pack(side="right")
@@ -292,7 +325,6 @@ class DayDetailsWindow(tk.Toplevel):
         ttk.Button(btns, text="删除", command=self.delete_event).pack(side="left", padx=4)
         ttk.Button(btns, text="关闭", command=self.destroy).pack(side="left", padx=4)
 
-        # Treeview
         columns = ("name", "start", "end", "note")
         self.tree = ttk.Treeview(wrap, columns=columns, show="headings", height=12)
         self.tree.pack(fill="both", expand=True)
@@ -305,16 +337,13 @@ class DayDetailsWindow(tk.Toplevel):
         self.tree.column("name", width=180, anchor="w")
         self.tree.column("start", width=140, anchor="w")
         self.tree.column("end", width=140, anchor="w")
-        self.tree.column("note", width=260, anchor="w")
+        self.tree.column("note", width=300, anchor="w")
 
-        # Scrollbar
         ybar = ttk.Scrollbar(self.tree, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=ybar.set)
         ybar.pack(side="right", fill="y")
 
-        # Double click row to edit
         self.tree.bind("<Double-Button-1>", lambda e: self.edit_event())
-
         self.refresh()
 
     def _events_for_day(self) -> List[Event]:
@@ -323,14 +352,8 @@ class DayDetailsWindow(tk.Toplevel):
     def refresh(self):
         for i in self.tree.get_children():
             self.tree.delete(i)
-
-        events = self._events_for_day()
-        for e in events:
-            self.tree.insert(
-                "", "end",
-                iid=e.id,  # 用事件 id 作为 iid，方便定位编辑/删除
-                values=(e.name, dt_to_str(e.start), dt_to_str(e.end), e.note)
-            )
+        for e in self._events_for_day():
+            self.tree.insert("", "end", iid=e.id, values=(e.name, dt_to_str(e.start), dt_to_str(e.end), e.note))
 
     def _selected_event_id(self) -> Optional[str]:
         sel = self.tree.selection()
@@ -340,7 +363,6 @@ class DayDetailsWindow(tk.Toplevel):
         dlg = EventEditor(self.app.root, mode="add", init_date=self.d)
         if not dlg.result:
             return
-
         new = Event(
             id=str(uuid.uuid4()),
             name=dlg.result["name"],
@@ -355,9 +377,8 @@ class DayDetailsWindow(tk.Toplevel):
     def edit_event(self):
         eid = self._selected_event_id()
         if not eid:
-            messagebox.showinfo("提示", "请先在列表中选择一个事件（或双击某行进行编辑）")
+            messagebox.showinfo("提示", "请先选择一个事件（或双击某行编辑）")
             return
-
         ev = self.app.find_event_by_id(eid)
         if not ev:
             messagebox.showerror("错误", "找不到该事件（可能已被删除）")
@@ -369,7 +390,6 @@ class DayDetailsWindow(tk.Toplevel):
         if not dlg.result:
             return
 
-        # 原地更新
         ev.name = dlg.result["name"]
         ev.start = dlg.result["start"]
         ev.end = dlg.result["end"]
@@ -381,9 +401,8 @@ class DayDetailsWindow(tk.Toplevel):
     def delete_event(self):
         eid = self._selected_event_id()
         if not eid:
-            messagebox.showinfo("提示", "请先在列表中选择一个事件")
+            messagebox.showinfo("提示", "请先选择一个事件")
             return
-
         ev = self.app.find_event_by_id(eid)
         if not ev:
             messagebox.showerror("错误", "找不到该事件（可能已被删除）")
@@ -400,7 +419,153 @@ class DayDetailsWindow(tk.Toplevel):
 
 
 # -----------------------------
-# 主界面：日历视图
+# 多选下拉面板（弹出）
+# -----------------------------
+class MultiSelectDropdown(tk.Toplevel):
+    def __init__(self, app: "CalendarApp", anchor_widget: tk.Widget):
+        super().__init__(app.root)
+        self.app = app
+        self.anchor_widget = anchor_widget
+
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+
+        wrap = ttk.Frame(self, padding=8, relief="solid", borderwidth=1)
+        wrap.pack(fill="both", expand=True)
+
+        top = ttk.Frame(wrap)
+        top.pack(fill="x", pady=(0, 6))
+        ttk.Label(top, text="多选事件（Ctrl/Shift 可多选）").pack(side="left")
+        ttk.Button(top, text="×", width=3, command=self.destroy).pack(side="right")
+
+        mid = ttk.Frame(wrap)
+        mid.pack(fill="both", expand=True)
+
+        self.listbox = tk.Listbox(mid, selectmode="multiple", exportselection=False, height=10)
+        self.listbox.bind("<Button-1>", self._on_toggle_click)   # 单击切换选中/取消
+        self.listbox.bind("<space>", self._on_toggle_space)      # 空格也可切换（可选）
+        self.listbox.pack(side="left", fill="both", expand=True)
+
+        sb = ttk.Scrollbar(mid, orient="vertical", command=self.listbox.yview)
+        sb.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=sb.set)
+
+        # 填充选项
+        self.items = app.get_event_display_items()  # (display, eid)
+        for disp, _ in self.items:
+            self.listbox.insert("end", disp)
+
+        # 预选
+        selected_ids = app.selected_event_ids.copy()
+        for i, (_, eid) in enumerate(self.items):
+            if eid in selected_ids:
+                self.listbox.selection_set(i)
+
+        # 底部按钮
+        bottom = ttk.Frame(wrap)
+        bottom.pack(fill="x", pady=(8, 0))
+
+        self.auto_jump = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bottom, text="应用后跳转到最早事件月份", variable=self.auto_jump).pack(side="left")
+
+        ttk.Button(bottom, text="全选", command=self._select_all).pack(side="right", padx=4)
+        ttk.Button(bottom, text="全不选", command=self._select_none).pack(side="right", padx=4)
+        ttk.Button(bottom, text="应用高亮", command=self._apply).pack(side="right", padx=4)
+
+        # 快捷键：Enter 应用，Esc 关闭
+        self.listbox.bind("<Return>", lambda e: self._apply())
+        self.listbox.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Escape>", lambda e: self.destroy())
+
+        # 关键：智能摆放，保证按钮不被挡/不出屏幕
+        self._place_safely()
+        self.focus_force()
+
+    def _place_safely(self):
+        # 锚点信息
+        ax = self.anchor_widget.winfo_rootx()
+        ay = self.anchor_widget.winfo_rooty()
+        ah = self.anchor_widget.winfo_height()
+        aw = self.anchor_widget.winfo_width()
+
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+
+        # 面板期望尺寸（可调整）
+        w = max(420, aw)
+        h = 340
+
+        # 保证不超屏
+        w = min(w, screen_w - 20)
+        h = min(h, screen_h - 20)
+
+        # 默认放在按钮下方
+        x = ax
+        y_below = ay + ah
+        y_above = ay - h
+
+        # x 修正到屏幕内
+        x = max(10, min(x, screen_w - w - 10))
+
+        # y：下面放不下就放上面；上面也放不下就贴边缩放
+        if y_below + h + 10 <= screen_h:
+            y = y_below
+        elif y_above >= 10:
+            y = y_above
+        else:
+            # 实在放不下：就把高度缩到能放下，并贴近可见区域
+            h = max(220, screen_h - 20)
+            y = max(10, min(y_below, screen_h - h - 10))
+
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _select_all(self):
+        if self.listbox.size() > 0:
+            self.listbox.selection_set(0, "end")
+
+    def _select_none(self):
+        self.listbox.selection_clear(0, "end")
+
+    def _apply(self):
+        idxs = list(self.listbox.curselection())
+        eids = []
+        for i in idxs:
+            _, eid = self.items[i]
+            eids.append(eid)
+        self.app.apply_selected_events(set(eids), auto_jump=self.auto_jump.get())
+        self.destroy()
+    def _on_toggle_click(self, event):
+        # 将“单击”改成：点击某项 -> 选中/取消 切换，不需要 Ctrl/Shift
+        idx = self.listbox.nearest(event.y)
+        if idx < 0 or idx >= self.listbox.size():
+            return "break"
+
+        cur = set(self.listbox.curselection())
+        if idx in cur:
+            self.listbox.selection_clear(idx)
+        else:
+            self.listbox.selection_set(idx)
+
+        self.listbox.activate(idx)
+        self.listbox.see(idx)
+        return "break"  # 阻止 Tk 默认行为（默认会清空其他选择）
+
+    def _on_toggle_space(self, event):
+        # 键盘友好：空格切换当前激活项
+        idx = self.listbox.index("active")
+        if idx < 0 or idx >= self.listbox.size():
+            return "break"
+
+        cur = set(self.listbox.curselection())
+        if idx in cur:
+            self.listbox.selection_clear(idx)
+        else:
+            self.listbox.selection_set(idx)
+
+        return "break"
+
+# -----------------------------
+# 主界面：日历视图（多选检索 + 多色高亮）
 # -----------------------------
 class CalendarApp:
     def __init__(self, root: tk.Tk, data_file: Path):
@@ -418,57 +583,62 @@ class CalendarApp:
         self.tooltip = Tooltip(root)
         self.day_windows: Dict[date, DayDetailsWindow] = {}
 
-        self._setup_styles()
+        # 多选结果
+        self.selected_event_ids: Set[str] = set()
+
+        # 高亮映射：date -> [event_id...]
+        self.highlight_day_to_eids: Dict[date, List[str]] = {}
+
+        # 每个选中事件对应颜色
+        self.highlight_color_by_eid: Dict[str, str] = {}
+
+        self.status_var = tk.StringVar(value="")
+        self.selector_summary_var = tk.StringVar(value="选择事件（多选）")
+
         self._build_ui()
         self._render_calendar()
 
-        # 首次运行：如果旧文件没 id，保存一次补齐
+        # 首次运行：若旧文件缺 id，保存一次补齐（不打扰 UI）
         self.persist_and_refresh(save_only=True)
-
-    def _setup_styles(self):
-        style = ttk.Style()
-        try:
-            style.theme_use("clam")
-        except Exception:
-            pass
-
-        style.configure("Header.TLabel", font=("Segoe UI", 14, "bold"))
-        style.configure("SubHeader.TLabel", font=("Segoe UI", 10))
-
-        style.configure("Day.TLabel", anchor="nw", padding=6, font=("Segoe UI", 10))
-        style.configure("Blank.TLabel", anchor="center", padding=6)
-
-        style.configure("EventDay.TLabel", anchor="nw", padding=6, font=("Segoe UI", 10))
-        style.map("EventDay.TLabel", background=[("!disabled", "#FFF4CC")])
-
-        style.configure("Today.TLabel", anchor="nw", padding=6, font=("Segoe UI", 10, "bold"))
-        style.map("Today.TLabel", background=[("!disabled", "#D6F0FF")])
-
-        style.configure("Tooltip.TFrame", relief="solid", borderwidth=1)
-        style.configure("Tooltip.TLabel", font=("Segoe UI", 10))
 
     def _build_ui(self):
         self.root.title("日程表可视化（日历视图）")
-        self.root.geometry("860x600")
+        self.root.geometry("980x700")
 
         top = ttk.Frame(self.root, padding=10)
         top.pack(fill="x")
 
-        self.title_label = ttk.Label(top, text="", style="Header.TLabel")
+        self.title_label = ttk.Label(top, text="", font=("TkDefaultFont", 14, "bold"))
         self.title_label.pack(side="left")
 
         btns = ttk.Frame(top)
         btns.pack(side="right")
-
         ttk.Button(btns, text="上个月", command=self.prev_month).pack(side="left", padx=4)
         ttk.Button(btns, text="下个月", command=self.next_month).pack(side="left", padx=4)
         ttk.Button(btns, text="重新加载日程", command=self.reload).pack(side="left", padx=4)
 
-        hint = "提示：双击任意日期打开详细列表（可新增/编辑/删除）。悬停在有日程的日期会显示 tooltip。"
+        # 多选检索栏
+        bar = ttk.Frame(self.root, padding=(10, 0, 10, 8))
+        bar.pack(fill="x")
+
+        ttk.Label(bar, text="检索（多选）：").pack(side="left")
+
+        self.selector_btn = ttk.Button(bar, textvariable=self.selector_summary_var, command=self.open_multiselect_dropdown)
+        self.selector_btn.pack(side="left", padx=6)
+
+        ttk.Button(bar, text="清除高亮", command=self.clear_highlight).pack(side="left", padx=4)
+
+        ttk.Label(bar, textvariable=self.status_var).pack(side="left", padx=12)
+
+        hint = (
+            "提示：\n"
+            "1）有事件日期会自动填充颜色；悬停在有日程的日期会显示 tooltip。\n"
+            "2）双击任意日期打开详细列表（可新增/编辑/删除）。\n"
+            "3）多选检索后会为每个事件分配不同颜色；若同一天属于多个事件，会显示多色小圆点。"
+        )
         self.hint_label = ttk.Label(
             self.root,
             text=f"{hint}\n数据文件：{self.data_file.resolve()}（可直接编辑 JSON）",
-            style="SubHeader.TLabel",
             padding=(10, 0, 10, 6),
         )
         self.hint_label.pack(fill="x")
@@ -493,25 +663,133 @@ class CalendarApp:
         for c in range(7):
             self.grid_frame.columnconfigure(c, weight=1)
 
+    # -----------------------------
+    # 多选下拉面板
+    # -----------------------------
+    def get_event_display_items(self) -> List[Tuple[str, str]]:
+        # (display, eid)
+        items: List[Tuple[str, str]] = []
+        seen: Set[str] = set()
+        for e in sorted(self.events, key=lambda x: (x.start, x.end, x.name)):
+            span = f"{dt_to_str(e.start)}~{dt_to_str(e.end)}" if e.end != e.start else dt_to_str(e.start)
+            disp = f"{e.name}  |  {span}"
+            if disp in seen:
+                disp = f"{disp}  ({e.id[:8]})"
+            seen.add(disp)
+            items.append((disp, e.id))
+        return items
+
+    def open_multiselect_dropdown(self):
+        MultiSelectDropdown(self, self.selector_btn)
+
+    def apply_selected_events(self, selected_ids: Set[str], auto_jump: bool = True):
+        # 清理不存在的 id（比如文件被手改/事件被删）
+        existing_ids = {e.id for e in self.events}
+        selected_ids = set(i for i in selected_ids if i in existing_ids)
+
+        # 颜色分配：保留旧的，新增的分配新颜色
+        old = dict(self.highlight_color_by_eid)
+        self.highlight_color_by_eid.clear()
+
+        used_colors = set()
+        for eid in selected_ids:
+            if eid in old:
+                self.highlight_color_by_eid[eid] = old[eid]
+                used_colors.add(old[eid])
+
+        # 为新加入的事件分配颜色
+        next_index = 0
+        for eid in selected_ids:
+            if eid in self.highlight_color_by_eid:
+                continue
+            # 先用固定色盘，避免重复；不够就生成
+            while True:
+                if next_index < len(HIGHLIGHT_PALETTE):
+                    cand = HIGHLIGHT_PALETTE[next_index]
+                else:
+                    cand = pastel_from_index(next_index)
+                next_index += 1
+                if cand not in used_colors:
+                    used_colors.add(cand)
+                    self.highlight_color_by_eid[eid] = cand
+                    break
+
+        self.selected_event_ids = selected_ids
+        self._rebuild_highlight_day_map()
+
+        self._update_selector_summary()
+        self.status_var.set(f"已选 {len(self.selected_event_ids)} 个事件")
+
+        # 自动跳转到最早事件月份
+        if auto_jump and self.selected_event_ids:
+            evs = [e for e in self.events if e.id in self.selected_event_ids]
+            evs.sort(key=lambda e: (e.start, e.end))
+            self.year = evs[0].start.year
+            self.month = evs[0].start.month
+
+        self._render_calendar()
+
+    def _update_selector_summary(self):
+        if not self.selected_event_ids:
+            self.selector_summary_var.set("选择事件（多选）")
+            return
+        # 显示前两个名字 + 数量
+        names = [e.name for e in self.events if e.id in self.selected_event_ids]
+        names = names[:2]
+        if len(self.selected_event_ids) <= 2:
+            self.selector_summary_var.set("，".join(names))
+        else:
+            self.selector_summary_var.set(f"{'，'.join(names)} 等（{len(self.selected_event_ids)}）")
+
+    def clear_highlight(self):
+        self.selected_event_ids = set()
+        self.highlight_day_to_eids = {}
+        self.highlight_color_by_eid = {}
+        self.status_var.set("")
+        self.selector_summary_var.set("选择事件（多选）")
+        self._render_calendar()
+
+    def _rebuild_highlight_day_map(self):
+        self.highlight_day_to_eids = {}
+        # 固定顺序：按事件开始时间排序，保证小圆点顺序一致
+        selected_events = [e for e in self.events if e.id in self.selected_event_ids]
+        selected_events.sort(key=lambda e: (e.start, e.end, e.name))
+
+        for e in selected_events:
+            cur = e.start.date()
+            endd = e.end.date()
+            while cur <= endd:
+                lst = self.highlight_day_to_eids.setdefault(cur, [])
+                if e.id not in lst:
+                    lst.append(e.id)
+                cur += timedelta(days=1)
+
+    # -----------------------------
+    # 文件/数据刷新
+    # -----------------------------
     def reload(self):
-        # 从文件重新读取（如果你手动编辑了 schedule.json）
         self.events = load_events(self.data_file)
         self.day_map = build_day_map(self.events)
+
+        # 重新加载后，保留仍存在的选择
+        self.apply_selected_events(self.selected_event_ids, auto_jump=False)
+
         self._render_calendar()
         self._refresh_open_day_windows()
 
     def persist_and_refresh(self, save_only: bool = False):
-        # 写回文件 + 重建 day_map + 刷新日历
-        # save_only=True 用于首次补齐 id，不打扰 UI
         save_events(self.data_file, self.events)
         if save_only:
             return
         self.day_map = build_day_map(self.events)
+
+        # 事件变更后，保留仍存在的选择并重建高亮
+        self.apply_selected_events(self.selected_event_ids, auto_jump=False)
+
         self._render_calendar()
         self._refresh_open_day_windows()
 
     def _refresh_open_day_windows(self):
-        # 如果已经打开了某些“当天详情窗口”，同步刷新它们
         for d, win in list(self.day_windows.items()):
             if not win.winfo_exists():
                 self.day_windows.pop(d, None)
@@ -524,6 +802,9 @@ class CalendarApp:
                 return e
         return None
 
+    # -----------------------------
+    # 月份切换 / 打开当天详情
+    # -----------------------------
     def prev_month(self):
         if self.month == 1:
             self.month = 12
@@ -541,7 +822,6 @@ class CalendarApp:
         self._render_calendar()
 
     def open_day_details(self, d: date):
-        # 同一天只开一个窗口
         win = self.day_windows.get(d)
         if win and win.winfo_exists():
             win.lift()
@@ -550,9 +830,33 @@ class CalendarApp:
         win = DayDetailsWindow(self, d)
         self.day_windows[d] = win
 
+    # -----------------------------
+    # 日历渲染
+    # -----------------------------
     def _clear_grid(self):
         for w in self.grid_frame.winfo_children():
             w.destroy()
+
+    def _base_bg(self, d: date, has_events: bool) -> str:
+        if d == self.today:
+            return TODAY_BG
+        if has_events:
+            return EVENT_BG
+        return NORMAL_BG
+
+    def _draw_highlight_dots(self, parent: tk.Frame, bg: str, eids: List[str]):
+        # 最多显示 4 个小圆点
+        colors = [self.highlight_color_by_eid.get(eid, "#CCCCCC") for eid in eids][:4]
+        if not colors:
+            return
+        w = 10 * len(colors) + 2
+        h = 10
+        cv = tk.Canvas(parent, width=w, height=h, bg=bg, highlightthickness=0, bd=0)
+        cv.place(relx=1.0, rely=1.0, anchor="se", x=-4, y=-4)
+        x = 5
+        for c in colors:
+            cv.create_oval(x - 3, 2, x + 3, 8, fill=c, outline=darken(c, 0.7))
+            x += 10
 
     def _render_calendar(self):
         self.tooltip.hide()
@@ -571,41 +875,83 @@ class CalendarApp:
                 idx = r * 7 + c
                 day = month_days[idx]
 
-                cell = ttk.Frame(self.grid_frame, relief="ridge", borderwidth=1)
-                cell.grid(row=r, column=c, sticky="nsew", padx=1, pady=1)
-                cell.rowconfigure(0, weight=1)
-                cell.columnconfigure(0, weight=1)
-
                 if day == 0:
-                    ttk.Label(cell, text="", style="Blank.TLabel").grid(row=0, column=0, sticky="nsew")
+                    cell = tk.Frame(
+                        self.grid_frame,
+                        bg=BLANK_BG,
+                        highlightthickness=1,
+                        highlightbackground=BORDER_NORMAL,
+                        bd=0
+                    )
+                    cell.grid(row=r, column=c, sticky="nsew", padx=1, pady=1)
                     continue
 
                 d = date(self.year, self.month, day)
                 events_today = self.day_map.get(d, [])
+                has_events = bool(events_today)
 
-                text = f"{day}"
-                if events_today:
-                    text += "  •"
+                base_bg = self._base_bg(d, has_events)
 
-                if d == self.today:
-                    style_name = "Today.TLabel"
-                elif events_today:
-                    style_name = "EventDay.TLabel"
+                # 这一天属于哪些“检索选中事件”
+                hit_eids = self.highlight_day_to_eids.get(d, [])
+
+                # 背景 / 边框策略：
+                # - 命中1个事件：背景 = 该事件颜色
+                # - 命中多个事件：背景 = MULTI_HIT_BG（并用小圆点区分）
+                # - 未命中：背景 = base
+                if len(hit_eids) == 1:
+                    bg = self.highlight_color_by_eid.get(hit_eids[0], base_bg)
+                    border = darken(bg, 0.7)
+                    ht = 2
+                elif len(hit_eids) > 1:
+                    bg = MULTI_HIT_BG
+                    border = "#555555"
+                    ht = 2
                 else:
-                    style_name = "Day.TLabel"
+                    bg = base_bg
+                    border = BORDER_NORMAL
+                    ht = 1
 
-                lbl = ttk.Label(cell, text=text, style=style_name)
-                lbl.grid(row=0, column=0, sticky="nsew")
+                cell = tk.Frame(
+                    self.grid_frame,
+                    bg=bg,
+                    highlightthickness=ht,
+                    highlightbackground=border,
+                    highlightcolor=border,
+                    bd=0
+                )
+                cell.grid(row=r, column=c, sticky="nsew", padx=1, pady=1)
+                cell.grid_propagate(False)
 
-                # 双击打开当天详情（任何日期都可以双击打开）
+                # 文本（• 表示当天有任何事件）
+                text = f"{day}" + ("  •" if has_events else "")
+                font = ("TkDefaultFont", 10, "bold") if d == self.today else ("TkDefaultFont", 10)
+
+                lbl = tk.Label(
+                    cell,
+                    text=text,
+                    bg=bg,
+                    anchor="nw",
+                    justify="left",
+                    font=font,
+                    padx=6,
+                    pady=6
+                )
+                lbl.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+                # 命中的事件，用彩色小圆点标识（即使单个事件也画）
+                if hit_eids:
+                    self._draw_highlight_dots(cell, bg, hit_eids)
+
+                # 双击打开当天详情（任何日期都可）
                 for widget in (cell, lbl):
                     widget.bind("<Double-Button-1>", lambda e, dd=d: self.open_day_details(dd))
 
-                # 有日程的日期才显示 tooltip
-                if events_today:
+                # 有日程才显示 tooltip
+                if has_events:
                     for widget in (cell, lbl):
-                        widget.bind("<Enter>", lambda e, dd=d: self._on_enter_day(e, dd))
-                        widget.bind("<Motion>", lambda e, dd=d: self._on_motion_day(e, dd))
+                        widget.bind("<Enter>", lambda e, dd=d: self._on_enter_day(dd))
+                        widget.bind("<Motion>", lambda e, dd=d: self._on_motion_day(dd))
                         widget.bind("<Leave>", lambda e: self.tooltip.hide())
 
     def _format_tooltip(self, d: date, events: List[Event]) -> str:
@@ -616,7 +962,7 @@ class CalendarApp:
             lines.append(f"{i}. {ev.name}  [{span}]{note}")
         return "\n".join(lines)
 
-    def _on_enter_day(self, event: tk.Event, d: date):
+    def _on_enter_day(self, d: date):
         events_today = self.day_map.get(d, [])
         if not events_today:
             return
@@ -625,7 +971,7 @@ class CalendarApp:
         y = self.root.winfo_pointery() + 18
         self.tooltip.show(x, y, text)
 
-    def _on_motion_day(self, event: tk.Event, d: date):
+    def _on_motion_day(self, d: date):
         events_today = self.day_map.get(d, [])
         if not events_today:
             self.tooltip.hide()
@@ -638,13 +984,11 @@ class CalendarApp:
 
 def main():
     data_file = Path(__file__).with_name("schedule.json")
-
     root = tk.Tk()
     try:
         root.tk.call("tk", "scaling", 1.2)
     except Exception:
         pass
-
     CalendarApp(root, data_file)
     root.mainloop()
 
