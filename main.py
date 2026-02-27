@@ -222,11 +222,29 @@ class EventEditor(tk.Toplevel):
         ttk.Label(wrap, text="开始：").grid(row=1, column=0, sticky="w", pady=4)
         ttk.Label(wrap, text="格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM").grid(row=1, column=2, sticky="w", padx=(8, 0))
         self.start_var = tk.StringVar()
-        ttk.Entry(wrap, textvariable=self.start_var, width=42).grid(row=1, column=1, sticky="ew", pady=4)
+        start_row = ttk.Frame(wrap)
+        start_row.grid(row=1, column=1, sticky="ew", pady=4)
+
+        ttk.Entry(start_row, textvariable=self.start_var, width=30).pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            start_row,
+            text="📅 选择日期",
+            command=lambda: self._on_pick_start_date(),
+        ).pack(side="left", padx=(8, 0))
 
         ttk.Label(wrap, text="结束：").grid(row=2, column=0, sticky="w", pady=4)
         self.end_var = tk.StringVar()
-        ttk.Entry(wrap, textvariable=self.end_var, width=42).grid(row=2, column=1, sticky="ew", pady=4)
+        end_row = ttk.Frame(wrap)
+        end_row.grid(row=2, column=1, sticky="ew", pady=4)
+
+        ttk.Entry(end_row, textvariable=self.end_var, width=30).pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            end_row,
+            text="📅 选择日期",
+            command=lambda: self._on_pick_end_date(),
+        ).pack(side="left", padx=(8, 0))
 
         ttk.Label(wrap, text="备注：").grid(row=3, column=0, sticky="nw", pady=4)
         self.note_text = tk.Text(wrap, width=42, height=6)
@@ -258,6 +276,41 @@ class EventEditor(tk.Toplevel):
     def _cancel(self):
         self.result = None
         self.destroy()
+
+    def _on_pick_start_date(self):
+        # 推断一个初始日期：优先从当前输入解析，否则用 init_date
+        init = None
+        try:
+            init = parse_dt(self.start_var.get()).date()
+        except Exception:
+            init = None
+        chosen = ui.pick_date(self, initial=init, title="选择开始日期")
+        if chosen:
+            self._set_date_keep_time(self.start_var, chosen)
+
+    def _on_pick_end_date(self):
+        init = None
+        try:
+            init = parse_dt(self.end_var.get()).date()
+        except Exception:
+            init = None
+        chosen = ui.pick_date(self, initial=init, title="选择结束日期")
+        if chosen:
+            self._set_date_keep_time(self.end_var, chosen)
+
+    def _set_date_keep_time(self, var: tk.StringVar, chosen: date):
+        """
+        仅替换日期部分，保留用户可能输入的时间部分：
+        - '2026-03-05' -> '2026-03-10'
+        - '2026-03-05 14:00' -> '2026-03-10 14:00'
+        """
+        cur = (var.get() or "").strip()
+        date_part = chosen.strftime("%Y-%m-%d")
+        if " " in cur:
+            _, time_part = cur.split(" ", 1)
+            var.set(f"{date_part} {time_part.strip()}")
+        else:
+            var.set(date_part)
 
     def _ok(self):
         name = (self.name_var.get() or "").strip()

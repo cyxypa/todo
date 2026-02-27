@@ -3,7 +3,8 @@ from tkinter import ttk
 import tkinter.font as tkfont
 from dataclasses import dataclass
 from typing import Tuple, Optional
-
+import calendar as _cal
+from datetime import date as _date
 
 # -----------------------------
 # 深色主题（默认）
@@ -390,3 +391,146 @@ def build_tooltip_widgets(win: tk.Toplevel, text: str) -> tk.Label:
                      padx=10, pady=8)
     label.pack()
     return label
+
+class DatePickerDialog(tk.Toplevel):
+    """
+    简易日期选择器：点某一天即选择并关闭；支持切换月份；高亮今日/当前选中日。
+    返回 self.result: Optional[date]
+    """
+    def __init__(self, parent: tk.Widget, initial: _date | None = None, title: str = "选择日期"):
+        super().__init__(parent)
+        self.result: _date | None = None
+
+        self.title(title)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        self._today = _date.today()
+        self._selected = initial or self._today
+        self._year = self._selected.year
+        self._month = self._selected.month
+
+        wrap = ttk.Frame(self, padding=12, style="Card.TFrame")
+        wrap.pack(fill="both", expand=True)
+
+        # 顶部：月份 + 上下月
+        top = ttk.Frame(wrap, style="Card.TFrame")
+        top.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(top, text="◀", style="Nav.TButton", command=self._prev_month).pack(side="left")
+        self._title = ttk.Label(top, text="", style="Title.TLabel")
+        self._title.pack(side="left", padx=10)
+        ttk.Button(top, text="▶", style="Nav.TButton", command=self._next_month).pack(side="left")
+
+        ttk.Button(top, text="取消", style="Ghost.TButton", command=self._cancel).pack(side="right")
+
+        # 星期标题
+        header = tk.Frame(wrap, bg=THEME.card_bg)
+        header.pack(fill="x")
+        for i in range(7):
+            header.grid_columnconfigure(i, weight=1)
+        week_names = ["一", "二", "三", "四", "五", "六", "日"]
+        for i, w in enumerate(week_names):
+            tk.Label(
+                header,
+                text=w,
+                bg=THEME.header_bg,
+                fg=THEME.text_fg,
+                font=(THEME.font_family, 10, "bold"),
+                padx=8, pady=6
+            ).grid(row=0, column=i, sticky="ew", padx=1, pady=(0, 6))
+
+        # 日期网格
+        self._grid = tk.Frame(wrap, bg=THEME.card_bg)
+        self._grid.pack(fill="both", expand=True)
+
+        self.bind("<Escape>", lambda e: self._cancel())
+        self._render()
+        center_window(self, width=420, height=420, parent=parent)
+
+    def _cancel(self):
+        self.result = None
+        self.destroy()
+
+    def _prev_month(self):
+        if self._month == 1:
+            self._month = 12
+            self._year -= 1
+        else:
+            self._month -= 1
+        self._render()
+
+    def _next_month(self):
+        if self._month == 12:
+            self._month = 1
+            self._year += 1
+        else:
+            self._month += 1
+        self._render()
+
+    def _choose(self, d: _date):
+        self.result = d
+        self.destroy()
+
+    def _render(self):
+        self._title.config(text=f"{self._year}年 {self._month}月")
+
+        for w in self._grid.winfo_children():
+            w.destroy()
+
+        for c in range(7):
+            self._grid.grid_columnconfigure(c, weight=1)
+
+        cal = _cal.Calendar(firstweekday=0)  # 周一开头
+        days = list(cal.itermonthdays(self._year, self._month))
+        while len(days) < 42:
+            days.append(0)
+
+        for r in range(6):
+            self._grid.grid_rowconfigure(r, weight=1)
+            for c in range(7):
+                n = days[r * 7 + c]
+                if n == 0:
+                    cell = tk.Frame(self._grid, bg=THEME.card_bg, highlightthickness=0, bd=0)
+                    cell.grid(row=r, column=c, sticky="nsew", padx=2, pady=2)
+                    continue
+
+                d = _date(self._year, self._month, n)
+                is_today = (d == self._today)
+                is_sel = (d == self._selected)
+
+                # 背景/边框
+                bg = THEME.card_bg
+                fg = THEME.weekend_fg if c >= 5 else THEME.text_fg
+
+                # 选中日：用 accent 背景
+                if is_sel:
+                    bg = THEME.accent
+                    fg = "white"
+
+                btn = tk.Button(
+                    self._grid,
+                    text=str(n),
+                    bg=bg,
+                    fg=fg,
+                    bd=0,
+                    relief="flat",
+                    activebackground=_mix(bg, "#000000", 0.08) if THEME.mode == "dark" else _mix(bg, "#FFFFFF", 0.08),
+                    activeforeground=fg,
+                    font=(THEME.font_family, 11, "bold" if (is_today or is_sel) else "normal"),
+                    command=lambda dd=d: self._choose(dd),
+                )
+                btn.grid(row=r, column=c, sticky="nsew", padx=2, pady=2)
+
+                # 今日：加一个描边提示（不影响选中底色）
+                if is_today and not is_sel:
+                    btn.configure(highlightthickness=2, highlightbackground=THEME.accent, highlightcolor=THEME.accent)
+                else:
+                    btn.configure(highlightthickness=0)
+
+def pick_date(parent: tk.Widget, initial: _date | None = None, title: str = "选择日期") -> _date | None:
+    """弹出日期选择器，返回 date 或 None"""
+    dlg = DatePickerDialog(parent, initial=initial, title=title)
+    parent.wait_window(dlg)
+    return dlg.result
