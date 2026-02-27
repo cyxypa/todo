@@ -220,7 +220,7 @@ class EventEditor(tk.Toplevel):
         ttk.Entry(wrap, textvariable=self.name_var, width=42).grid(row=0, column=1, sticky="ew", pady=4)
 
         ttk.Label(wrap, text="开始：").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Label(wrap, text="格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM").grid(row=1, column=2, sticky="w", padx=(8, 0))
+        #ttk.Label(wrap, text="格式 YYYY-MM-DD 或 YYYY-MM-DD HH:MM").grid(row=1, column=2, sticky="w", padx=(8, 0))
         self.start_var = tk.StringVar()
         start_row = ttk.Frame(wrap)
         start_row.grid(row=1, column=1, sticky="ew", pady=4)

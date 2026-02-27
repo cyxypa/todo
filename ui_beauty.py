@@ -286,7 +286,7 @@ def build_main_ui(app) -> None:
     action_card = ttk.Frame(container, style="Card.TFrame", padding=(16, 12))
     action_card.pack(fill="x", padx=14, pady=(0, 12))
 
-    ttk.Label(action_card, text="检索（多选）", style="FieldLabel.TLabel").pack(side="left")
+    #ttk.Label(action_card, text="检索（多选）", style="FieldLabel.TLabel").pack(side="left")
 
     app.selector_btn = ttk.Button(
         action_card,
@@ -301,7 +301,7 @@ def build_main_ui(app) -> None:
     ttk.Label(action_card, textvariable=app.status_var, style="Badge.TLabel").pack(side="right")
 
     # hint
-    hint = f"数据文件：{app.data_file.resolve()}（可直接编辑 JSON）"
+    hint = f"数据文件：{app.data_file.resolve()}"
     ttk.Label(container, text=hint, style="Hint.TLabel", padding=(14, 0, 14, 10)).pack(fill="x")
 
     # 日历卡片
